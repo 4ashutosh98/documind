@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Image description (disabled — VLM not available in cloud deployment)
     enable_image_description: bool = False
 
+    # Inactivity cleanup — wipe all data after N minutes of no user activity.
+    # Set to 0 to disable. Configurable via INACTIVITY_TIMEOUT_MINUTES env var.
+    inactivity_timeout_minutes: int = 30
+
     # Semantic search + Doc2Query + Query Rewriting
     enable_embeddings: bool = True
     enable_doc2query: bool = True

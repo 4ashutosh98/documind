@@ -9,27 +9,42 @@ Routers registered:
   query_router     — POST /query
   chat_router      — POST|GET|DELETE /conversations/*
   dev_router       — POST /dev/reset  (dev/demo helper)
-"""
-import os
 
-from fastapi import FastAPI
+Inactivity cleanup:
+  A background asyncio task watches _last_activity. If no user-initiated API
+  call has been made for INACTIVITY_TIMEOUT_MINUTES (default 30), all data is
+  wiped automatically (same as POST /dev/reset). The timer only starts after
+  the first real interaction — the server booting up does not count.
+  Set INACTIVITY_TIMEOUT_MINUTES=0 to disable.
+"""
+import asyncio
+import logging
+import os
+import time
+from typing import Optional
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from database import init_db
+from config import settings
+from database import SessionLocal, init_db
 from api.upload import router as upload_router
 from api.artifacts import router as artifacts_router
 from api.query import router as query_router
 from api.chat import router as chat_router
-from api.dev import router as dev_router
+from api.dev import router as dev_router, perform_reset
 
-# FastAPI application instance — title and version appear in the auto-generated
-# OpenAPI docs at /docs and /redoc.
+_log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# App instance
+# ---------------------------------------------------------------------------
 app = FastAPI(title="DocuMind API", version="1.0.0")
 
 # CORS: configurable via ALLOWED_ORIGINS env var (comma-separated).
-# In the HF Spaces deployment, the frontend is served from the same origin so
+# In the HF Spaces deployment the frontend is served from the same origin, so
 # CORS is not needed for frontend↔API calls. The default allows local dev.
 _allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
@@ -48,30 +63,100 @@ app.include_router(chat_router)
 app.include_router(dev_router)
 
 
+# ---------------------------------------------------------------------------
+# Inactivity tracking
+# ---------------------------------------------------------------------------
+
+# None until the first real user action (server startup itself is not activity).
+_last_activity: Optional[float] = None
+
+# Paths that are NOT counted as user activity:
+#   /health            — Docker/HF healthcheck probe
+#   /artifacts/stream  — SSE endpoint that auto-reconnects every second
+#   /_next/*           — Next.js static asset fetches
+_INACTIVE_PATHS = {"/health", "/artifacts/stream"}
+_INACTIVE_PREFIXES = ("/_next",)
+
+
+@app.middleware("http")
+async def track_activity(request: Request, call_next):
+    """Update _last_activity on every meaningful user-initiated request."""
+    global _last_activity
+    path = request.url.path
+    is_inactive = (
+        path in _INACTIVE_PATHS
+        or any(path.startswith(p) for p in _INACTIVE_PREFIXES)
+        # Static file extensions served by the catch-all frontend route
+        or path.endswith((".js", ".css", ".ico", ".png", ".svg", ".woff", ".woff2", ".map"))
+    )
+    if not is_inactive:
+        _last_activity = time.time()
+    return await call_next(request)
+
+
+async def _inactivity_cleanup_loop() -> None:
+    """
+    Background task: wipe all data when the app has been idle too long.
+
+    Runs forever, waking every 60 seconds to check. Only fires after the first
+    real user interaction (_last_activity is not None). After wiping, resets
+    _last_activity to None so the timer only restarts on the next interaction.
+    """
+    global _last_activity
+    timeout = settings.inactivity_timeout_minutes * 60
+
+    while True:
+        await asyncio.sleep(60)
+
+        if timeout <= 0 or _last_activity is None:
+            continue  # cleanup disabled or no activity yet
+
+        idle_seconds = time.time() - _last_activity
+        if idle_seconds < timeout:
+            continue
+
+        _log.info(
+            "Inactivity timeout reached (idle %.0fs / limit %ds) — wiping all data.",
+            idle_seconds,
+            timeout,
+        )
+        try:
+            db = SessionLocal()
+            try:
+                perform_reset(db)
+            finally:
+                db.close()
+            _log.info("Auto-reset complete.")
+        except Exception as exc:
+            _log.error("Auto-reset failed: %s", exc)
+
+        # Reset timer — next cleanup only after a fresh interaction
+        _last_activity = None
+
+
+# ---------------------------------------------------------------------------
+# Startup
+# ---------------------------------------------------------------------------
+
 @app.on_event("startup")
-def on_startup() -> None:
+async def on_startup() -> None:
     """
     Run once when the server starts.
 
-    Creates all SQLAlchemy tables (via metadata.create_all), the FTS5 virtual
-    table, and the three sync triggers that keep the FTS index consistent with
-    the chunks table.  Safe to call multiple times — every DDL statement uses
-    IF NOT EXISTS so existing schemas are not modified.
+    Initialises the SQLite schema (tables + FTS5 virtual table + sync triggers)
+    and launches the background inactivity cleanup task.
     """
     init_db()
+    asyncio.create_task(_inactivity_cleanup_loop())
 
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
 
 @app.get("/health")
 def health() -> dict:
-    """
-    Lightweight liveness probe.
-
-    Used by the Docker healthcheck (``curl -f /health``) and by any
-    load balancer / orchestrator that needs to confirm the process is up.
-
-    Returns:
-        {"status": "ok"}
-    """
+    """Lightweight liveness probe — used by Docker healthcheck."""
     return {"status": "ok"}
 
 

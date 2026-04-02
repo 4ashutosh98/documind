@@ -1,0 +1,22 @@
+name: Sync to Hugging Face Spaces
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # full history needed for the push
+
+      - name: Push to HF Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git config user.email "ci@github.com"
+          git config user.name "GitHub Actions"
+          git remote add hf https://ashutoshchoudhari:$HF_TOKEN@huggingface.co/spaces/ashutoshchoudhari/documind
+          git push hf main --force

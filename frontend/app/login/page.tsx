@@ -36,7 +36,7 @@ export default function LoginPage() {
           DocuMind
         </h1>
         <p style={{ color: "var(--text-muted)" }} className="text-sm">
-          Choose your account to continue
+          Choose an account to explore the demo
         </p>
       </div>
 
@@ -68,6 +68,48 @@ export default function LoginPage() {
             </span>
           </button>
         ))}
+      </div>
+
+      {/* Mock auth notice */}
+      <div
+        className="mt-10 max-w-md w-full rounded-xl border px-5 py-4"
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+      >
+        <div className="flex items-start gap-3">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="shrink-0 mt-0.5"
+          >
+            <circle cx="8" cy="8" r="7" stroke="#3B82F6" strokeWidth="1.5" />
+            <path
+              d="M8 7v4M8 5.5v.5"
+              stroke="#3B82F6"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
+          <div className="space-y-1">
+            <p
+              className="text-xs font-semibold tracking-wide uppercase"
+              style={{ color: "var(--primary-dark)" }}
+            >
+              Demo / Portfolio project
+            </p>
+            <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+              Authentication is simulated — there are no passwords or real accounts.
+              All three user slots are open to anyone visiting this demo.
+              Each slot has its own isolated document namespace so you can
+              experiment without affecting others.
+            </p>
+            <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+              All uploaded files, conversations, and embeddings are wiped
+              automatically after a period of inactivity.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

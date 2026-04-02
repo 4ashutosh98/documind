@@ -4,8 +4,8 @@ Dev/testing utilities — POST /dev/reset.
 Wipes all persistent state: SQLite rows, uploaded blobs on disk, and ChromaDB
 vector collections.  Intended for local development and demo resets only.
 
-In production this endpoint should be removed or protected behind an admin
-auth check.  Currently it is unprotected because the system uses mock auth.
+The core logic lives in perform_reset(db) so the inactivity cleanup loop in
+main.py can call it directly without going through FastAPI dependency injection.
 """
 from __future__ import annotations
 
@@ -22,10 +22,9 @@ from database import get_db
 router = APIRouter(prefix="/dev", tags=["dev"])
 
 
-@router.post("/reset", status_code=200)
-def reset_all_data(db: Session = Depends(get_db)) -> dict:
+def perform_reset(db: Session) -> dict:
     """
-    Nuke all stored data — useful for demo resets and test teardowns.
+    Wipe all stored data.  Can be called directly (no FastAPI DI required).
 
     Wipes in this order:
       1. SQLite rows (FK-safe order: messages → conversations → chunks → artifacts)
@@ -37,13 +36,12 @@ def reset_all_data(db: Session = Depends(get_db)) -> dict:
          creates fresh Chroma collections rather than re-using the old ones.
 
     Args:
-        db: SQLAlchemy session (injected by FastAPI).
+        db: SQLAlchemy session (caller is responsible for closing it).
 
     Returns:
         {"status": "reset", "message": "All data wiped."}
     """
     # 1. SQLite — delete in FK-safe order (children before parents)
-    # messages references conversations; chunks references artifacts
     db.execute(text("DELETE FROM messages"))
     db.execute(text("DELETE FROM conversations"))
     db.execute(text("DELETE FROM chunks"))
@@ -57,7 +55,6 @@ def reset_all_data(db: Session = Depends(get_db)) -> dict:
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     # 3. ChromaDB — delete the entire persist directory
-    # All vector collections live under this single directory
     chroma_dir = Path(settings.chroma_dir)
     if chroma_dir.exists():
         shutil.rmtree(chroma_dir)
@@ -69,6 +66,12 @@ def reset_all_data(db: Session = Depends(get_db)) -> dict:
         vs._chunks_store = None
         vs._questions_store = None
     except Exception:
-        pass  # non-fatal if vector_store was never imported (e.g. embeddings disabled)
+        pass
 
     return {"status": "reset", "message": "All data wiped."}
+
+
+@router.post("/reset", status_code=200)
+def reset_all_data(db: Session = Depends(get_db)) -> dict:
+    """Manual reset endpoint — useful for demo resets and test teardowns."""
+    return perform_reset(db)
