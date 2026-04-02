@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:             #0B0F1C;   /* deep navy page background */
+  --surface:        #111827;   /* cards, inputs, modals */
+  --sidebar-bg:     #080D1B;   /* sidebars */
+  --primary:        #3B82F6;   /* electric blue */
+  --primary-light:  #1E3A6E;   /* dim blue for subtle highlights */
+  --primary-dark:   #60A5FA;   /* lighter blue for hover / text */
+  --border:         #1C2A40;   /* subtle dividers */
+  --text-primary:   #E8EDF5;   /* near-white text */
+  --text-secondary: #8B9EB8;   /* medium gray */
+  --text-muted:     #4B6280;   /* muted / placeholder */
+  --highlight:      #1A3A5F;   /* search match highlight */
+  --user-bubble:    #1D3A65;   /* user message bubble */
+  --assistant-bg:   #111827;   /* assistant message card */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  font-size: 17px;
+  background-color: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-dm-sans), "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--primary-light);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* Animated gradient for landing */
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animated-gradient {
+  background: linear-gradient(135deg, #080D1B, #0B0F1C, #0D1530, #08111F);
+  background-size: 400% 400%;
+  animation: gradientShift 12s ease infinite;
+}
+
+/* Search result highlight */
+mark.search-highlight {
+  background-color: var(--highlight);
+  color: var(--text-primary);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* Prose-like assistant message text */
+.assistant-content h1,
+.assistant-content h2,
+.assistant-content h3 {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0.5rem 0 0.25rem;
+}
+
+.assistant-content p {
+  margin: 0.25rem 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.assistant-content strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.assistant-content blockquote {
+  border-left: 3px solid var(--primary-light);
+  margin: 0.5rem 0;
+  padding: 0.25rem 0.75rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  background: var(--primary-light);
+  border-radius: 0 0.5rem 0.5rem 0;
+  opacity: 0.8;
+}

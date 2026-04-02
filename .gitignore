@@ -1,0 +1,26 @@
+# Local dev data (bind mount — switch back to named volume before production)
+data/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Claude
+CLAUDE.md
+.claude/
+
+# Pytest
+pytest_cache/
+.pytest_cache/
+
+# Misc
+.DS_Store
+PRESENTATION.md
+PRESENTATION.pptx
+flowchart.mmd
+*.pptx
