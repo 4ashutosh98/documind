@@ -1,3 +1,12 @@
+---
+title: DocuMind
+emoji: 🧠
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # DocuMind
 
 A full-stack RAG (Retrieval-Augmented Generation) application for document ingestion and intelligent Q&A. Upload PDFs, DOCX, and XLSX files and ask questions about them — answers are grounded in your documents with source citations.
