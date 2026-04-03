@@ -19,7 +19,7 @@ A full-stack RAG (Retrieval-Augmented Generation) application for document inges
 
 - **Multi-format ingestion** — PDF, DOCX, and XLSX files parsed into structured chunks with provenance (page, section, row range)
 - **Hybrid search** — FTS5 keyword search (BM25) fused with semantic vector search (Reciprocal Rank Fusion) for best-of-both retrieval
-- **RAG chat** — Multi-turn conversations powered by Gemini 2.0 Flash, grounded in your uploaded documents with source cards
+- **RAG chat** — Multi-turn conversations powered by Groq (Llama 3.1 8B Instant), grounded in your uploaded documents with source cards
 - **Contextual enrichment** — Each chunk enriched with 1-2 sentences of situational context at index time (Anthropic's Contextual Retrieval pattern)
 - **Doc2Query** — Hypothetical questions generated per chunk and indexed as additional retrieval vectors (improves semantic recall)
 - **Deduplication + versioning** — Content-addressed blob storage; same file stored once regardless of how many users upload it; re-uploads create version chains
@@ -34,8 +34,8 @@ A full-stack RAG (Retrieval-Augmented Generation) application for document inges
 | Frontend | Next.js 14 (React 18, TypeScript, Tailwind CSS) |
 | Backend | FastAPI + SQLAlchemy + SQLite FTS5 |
 | Vector store | ChromaDB (HNSW, cosine distance) |
-| LLM | Groq — llama-3.3-70b-versatile (chat, enrichment, doc2query, query rewriting) |
-| Embeddings | Google Gemini text-embedding-004 (768-dim) |
+| LLM | Groq — llama-3.1-8b-instant (chat, enrichment, doc2query, query rewriting) |
+| Embeddings | Google Gemini gemini-embedding-001 (768-dim) |
 | Orchestration | LangChain LCEL |
 | Document parsing | Docling (PDF/DOCX → structured markdown) + pandas (XLSX) |
 | Deployment | Docker (Hugging Face Spaces, port 7860) |
@@ -71,7 +71,7 @@ A full-stack RAG (Retrieval-Augmented Generation) application for document inges
 
 ```
 Upload → hash bytes (SHA-256) → dedup check → parse (Docling/pandas)
-      → chunk (semantic / row-based) → contextual enrichment (Gemini)
+      → chunk (semantic / row-based) → contextual enrichment (Groq)
       → persist to SQLite + FTS5  ← FTS5 keyword search available here
       → [background] embed chunks + doc2query questions → ChromaDB
                                   ← hybrid search available here
@@ -95,13 +95,17 @@ Query → rewrite (Groq) → FTS5 keyword search (BM25)
 - Node 20+ and npm
 - Python 3.11+
 - Docker (for the containerized backend)
+- A Groq API key: [console.groq.com](https://console.groq.com) (free, no credit card)
 - A Google AI Studio API key: [aistudio.google.com](https://aistudio.google.com) (free, no credit card)
 
 ### Backend (Docker)
 
 ```bash
-# Create a .env file in the backend directory
-echo "GOOGLE_API_KEY=your_key_here" > backend/.env
+# Create a .env file in the backend directory with both keys
+cat > backend/.env <<EOF
+GROQ_API_KEY=gsk_your_groq_key_here
+GOOGLE_API_KEY=AIza_your_google_key_here
+EOF
 
 docker-compose up --build
 # API at http://localhost:8000
@@ -113,7 +117,7 @@ docker-compose up --build
 ```bash
 cd backend
 pip install -r requirements.txt
-GOOGLE_API_KEY=your_key_here uvicorn main:app --reload --port 8000
+GROQ_API_KEY=gsk_your_key GOOGLE_API_KEY=AIza_your_key uvicorn main:app --reload --port 8000
 ```
 
 ### Frontend
@@ -135,7 +139,8 @@ npm run dev    # http://localhost:3000
 1. Create a new Space → type: **Docker**
 2. Push this repository (or connect GitHub)
 3. In Space Settings → **Repository Secrets**, add:
-   - `GOOGLE_API_KEY` — your Google AI Studio key
+   - `GROQ_API_KEY` — your Groq API key (from [console.groq.com](https://console.groq.com))
+   - `GOOGLE_API_KEY` — your Google AI Studio key (from [aistudio.google.com](https://aistudio.google.com))
 4. The Space builds automatically using the root [Dockerfile](Dockerfile)
 
 The Dockerfile does two things in a multi-stage build:
@@ -149,7 +154,7 @@ Two secrets are required in HF Spaces Settings → Repository Secrets:
 | Secret | Purpose |
 |---|---|
 | `GROQ_API_KEY` | LLM calls — chat answers, contextual enrichment, doc2query, query rewriting |
-| `GOOGLE_API_KEY` | Embeddings only — text-embedding-004 (768-dim) |
+| `GOOGLE_API_KEY` | Embeddings only — gemini-embedding-001 (768-dim) |
 
 Visitors can also supply their own Groq key via the **"Use your own API keys"** button on the login page — their key is stored in their browser and sent per-request, so it uses their own free quota instead of the shared one.
 
@@ -193,7 +198,7 @@ POST   /query                               Hybrid search (FTS5 + semantic)
 POST   /conversations                       Create conversation
 GET    /conversations?user_id=              List conversations (newest first)
 DELETE /conversations/{id}?user_id=         Delete conversation + messages
-POST   /conversations/{id}/messages         Send message → Gemini RAG reply
+POST   /conversations/{id}/messages         Send message → Groq RAG reply
 GET    /conversations/{id}/messages         Message history
 GET    /health                              Liveness probe
 ```
@@ -208,4 +213,4 @@ Interactive API docs at `http://localhost:8000/docs` when running locally.
 - **Per-user dedup + version chains** — each user has an independent version chain; uploading a new file version doesn't affect other users' copies
 - **WAL mode + NullPool** — SQLite WAL for concurrent reads; NullPool ensures background embedding tasks always read latest committed data
 - **FTS5 content table** — chunk text indexed without duplication; three sync triggers keep FTS consistent with the chunks table
-- **Graceful degradation** — every Gemini API call is wrapped in try/except; system falls back to FTS5-only search on API errors or rate limits (HTTP 429)
+- **Graceful degradation** — every Groq/Gemini API call is wrapped in try/except; system falls back to FTS5-only search and formatted excerpts on API errors or rate limits
