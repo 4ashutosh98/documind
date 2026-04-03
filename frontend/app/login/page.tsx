@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser, setUser } from "@/lib/auth";
 import Avatar from "@/components/Avatar";
+import ApiKeysModal from "@/components/ApiKeysModal";
 
 const USERS = [
   { id: "user1", label: "User 1" },
@@ -13,6 +14,7 @@ const USERS = [
 
 export default function LoginPage() {
   const router = useRouter();
+  const [showApiKeys, setShowApiKeys] = useState(false);
 
   useEffect(() => {
     if (getUser()) router.replace("/chat");
@@ -111,6 +113,17 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* API keys button */}
+      <button
+        onClick={() => setShowApiKeys(true)}
+        className="mt-4 text-xs underline hover:opacity-70 transition-opacity"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Use your own API keys
+      </button>
+
+      {showApiKeys && <ApiKeysModal onClose={() => setShowApiKeys(false)} />}
     </div>
   );
 }

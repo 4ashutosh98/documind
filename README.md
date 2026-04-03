@@ -34,7 +34,8 @@ A full-stack RAG (Retrieval-Augmented Generation) application for document inges
 | Frontend | Next.js 14 (React 18, TypeScript, Tailwind CSS) |
 | Backend | FastAPI + SQLAlchemy + SQLite FTS5 |
 | Vector store | ChromaDB (HNSW, cosine distance) |
-| LLM + embeddings | Google Gemini 2.0 Flash + text-embedding-004 (768-dim) |
+| LLM | Groq — llama-3.3-70b-versatile (chat, enrichment, doc2query, query rewriting) |
+| Embeddings | Google Gemini text-embedding-004 (768-dim) |
 | Orchestration | LangChain LCEL |
 | Document parsing | Docling (PDF/DOCX → structured markdown) + pandas (XLSX) |
 | Deployment | Docker (Hugging Face Spaces, port 7860) |
@@ -79,10 +80,10 @@ Upload → hash bytes (SHA-256) → dedup check → parse (Docling/pandas)
 ### Retrieval pipeline
 
 ```
-Query → rewrite (Gemini) → FTS5 keyword search (BM25)
-                         → semantic search (ChromaDB cosine)
-                         → RRF fusion (k=60)
-                         → format results with match positions
+Query → rewrite (Groq) → FTS5 keyword search (BM25)
+                       → semantic search (ChromaDB cosine)
+                       → RRF fusion (k=60)
+                       → format results with match positions
 ```
 
 ---
@@ -141,7 +142,18 @@ The Dockerfile does two things in a multi-stage build:
 1. Builds the Next.js static export (`npm run build` → `out/`)
 2. Copies it into the FastAPI container — FastAPI serves both the UI and the API from port 7860
 
-### Reducing free-tier API usage (optional Space Variables)
+### API Keys
+
+Two secrets are required in HF Spaces Settings → Repository Secrets:
+
+| Secret | Purpose |
+|---|---|
+| `GROQ_API_KEY` | LLM calls — chat answers, contextual enrichment, doc2query, query rewriting |
+| `GOOGLE_API_KEY` | Embeddings only — text-embedding-004 (768-dim) |
+
+Visitors can also supply their own Groq key via the **"Use your own API keys"** button on the login page — their key is stored in their browser and sent per-request, so it uses their own free quota instead of the shared one.
+
+Optional Space Variables to reduce API usage:
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -149,6 +161,7 @@ The Dockerfile does two things in a multi-stage build:
 | `ENABLE_DOC2QUERY` | `true` | `false` skips hypothetical question generation |
 | `DOC2QUERY_QUESTIONS` | `3` | Lower to `1` to reduce ingestion API calls |
 | `ENABLE_QUERY_REWRITING` | `true` | `false` skips query rewriting call |
+| `VERBOSE` | `true` | `false` silences detailed pipeline logs |
 
 > **Note:** Data is ephemeral on HF Spaces free tier — SQLite, uploads, and ChromaDB vectors reset on container restart. This is expected behavior for a demo.
 

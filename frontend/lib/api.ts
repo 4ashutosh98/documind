@@ -11,12 +11,29 @@ import type {
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function getGroqKey(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem("documind_groq_key") ?? "";
+}
+
+function getGoogleKey(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem("documind_google_key") ?? "";
+}
+
 async function request<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
+  const groqKey = getGroqKey();
+  const googleKey = getGoogleKey();
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(groqKey ? { "X-Groq-Api-Key": groqKey } : {}),
+      ...(googleKey ? { "X-Google-Api-Key": googleKey } : {}),
+      ...init?.headers,
+    },
     ...init,
   });
   if (!res.ok) {
@@ -51,6 +68,10 @@ export async function uploadFile(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/upload`);
+    const groqKey = getGroqKey();
+    if (groqKey) xhr.setRequestHeader("X-Groq-Api-Key", groqKey);
+    const googleKey = getGoogleKey();
+    if (googleKey) xhr.setRequestHeader("X-Google-Api-Key", googleKey);
 
     if (onProgress) {
       xhr.upload.onprogress = (e) => {

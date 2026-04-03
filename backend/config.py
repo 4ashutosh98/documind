@@ -11,15 +11,17 @@ class Settings(BaseSettings):
     xlsx_chunk_rows: int = 10
     xlsx_chunk_overlap_rows: int = 2
 
-    # Google Gemini — chat + enrichment LLM
+    # Groq — LLM for chat, enrichment, doc2query, query rewriting (14,400 req/day free tier)
     # Contextual enrichment prepends an LLM-generated 1-2 sentence situational context
     # to each chunk (Anthropic's Contextual Retrieval pattern). Gracefully skipped if API unreachable.
     enable_contextual_enrichment: bool = True
-    google_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"
 
-    # Google Gemini — embeddings (text-embedding-004, 768-dim, same as nomic-embed-text)
-    gemini_embed_model: str = "models/text-embedding-004"
+    # Google Gemini — embeddings only (text-embedding-004, 768-dim)
+    # Groq has no embeddings API; Gemini embeddings quota is separate from generate_content.
+    google_api_key: str = ""
+    gemini_embed_model: str = "gemini-embedding-001"
 
     # Image description (disabled — VLM not available in cloud deployment)
     enable_image_description: bool = False
@@ -35,8 +37,12 @@ class Settings(BaseSettings):
     enable_query_rewriting: bool = True
     chroma_dir: str = "./data/chroma"
 
+    # Verbose pipeline logging — set VERBOSE=false to silence detailed logs
+    verbose: bool = True
+
     class Config:
         env_file = ".env"
+        extra = "ignore"  # silently ignore unknown vars in .env (e.g. HF_TOKEN)
 
 
 settings = Settings()

@@ -9,13 +9,14 @@
 # HF Spaces requirement: the app must listen on port 7860.
 #
 # Environment variables (set as HF Spaces Secrets):
-#   GOOGLE_API_KEY   — required: Google AI Studio key for Gemini LLM + embeddings
+#   GROQ_API_KEY     — required: Groq API key for LLM (chat, enrichment, doc2query, query rewriting)
+#   GOOGLE_API_KEY   — required: Google AI Studio key for embeddings (text-embedding-004) only
 #
-# Optional tuning (set as HF Spaces Variables to reduce free-tier API usage):
-#   ENABLE_CONTEXTUAL_ENRICHMENT=false  (saves ~N LLM calls per upload)
-#   ENABLE_DOC2QUERY=false              (saves ~3N LLM calls per upload)
+# Optional tuning (set as HF Spaces Variables):
+#   ENABLE_CONTEXTUAL_ENRICHMENT=false  (saves ~N Groq calls per upload)
+#   ENABLE_DOC2QUERY=false              (saves ~3N Groq calls per upload)
 #   DOC2QUERY_QUESTIONS=1               (reduce from default 3)
-#   ENABLE_QUERY_REWRITING=false        (saves 1 LLM call per chat message)
+#   ENABLE_QUERY_REWRITING=false        (saves 1 Groq call per chat message)
 # ============================================================
 
 # ============================================================
@@ -80,7 +81,8 @@ ENV ENABLE_EMBEDDINGS="true"
 ENV ENABLE_CONTEXTUAL_ENRICHMENT="true"
 ENV ENABLE_DOC2QUERY="true"
 ENV ENABLE_QUERY_REWRITING="true"
-# GOOGLE_API_KEY is injected at runtime via HF Spaces Secrets — never hardcode here
+# GROQ_API_KEY  — inject via HF Spaces Secrets (LLM: chat, enrichment, doc2query, query rewriting)
+# GOOGLE_API_KEY — inject via HF Spaces Secrets (embeddings only: text-embedding-004)
 
 # HF Spaces requires port 7860
 EXPOSE 7860

@@ -146,6 +146,20 @@ async def on_startup() -> None:
     Initialises the SQLite schema (tables + FTS5 virtual table + sync triggers)
     and launches the background inactivity cleanup task.
     """
+    logging.basicConfig(
+        level=logging.INFO if settings.verbose else logging.WARNING,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+    _log.info(
+        "DocuMind starting — LLM: %s | embed: %s | enrichment: %s | doc2query: %s | verbose: %s",
+        settings.groq_model,
+        settings.gemini_embed_model,
+        settings.enable_contextual_enrichment,
+        settings.enable_doc2query,
+        settings.verbose,
+    )
     init_db()
     asyncio.create_task(_inactivity_cleanup_loop())
 
@@ -158,6 +172,28 @@ async def on_startup() -> None:
 def health() -> dict:
     """Lightweight liveness probe — used by Docker healthcheck."""
     return {"status": "ok"}
+
+
+@app.get("/api-info")
+def api_info() -> dict:
+    """Return model config and rate limit info for the API keys modal."""
+    return {
+        "groq_model": settings.groq_model,
+        "groq_configured": bool(settings.groq_api_key),
+        "embed_model": settings.gemini_embed_model,
+        "embed_configured": bool(settings.google_api_key),
+        "features": {
+            "contextual_enrichment": settings.enable_contextual_enrichment,
+            "doc2query": settings.enable_doc2query,
+            "query_rewriting": settings.enable_query_rewriting,
+            "embeddings": settings.enable_embeddings,
+        },
+        "rate_limits": {
+            "groq_free_requests_per_day": 14400,
+            "groq_free_requests_per_minute": 30,
+            "gemini_embed_requests_per_day": 1500,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,20 @@
+# Frontend build artifacts — large, rebuilt inside Docker
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+
+# Python bytecode and test cache
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+backend/.pytest_cache/
+backend/tests/
+
+# Local data — never bake DB/uploads/vectors into image
+backend/data/
+data/
+
+# Git history and editor files
+.git/
+**/.DS_Store
+*.swp

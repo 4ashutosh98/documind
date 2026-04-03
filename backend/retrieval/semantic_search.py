@@ -74,13 +74,15 @@ def search(
     user_id: str,
     artifact_ids: list[str] | None = None,
     limit: int = 10,
+    google_api_key: str = "",
 ) -> list[dict]:
     """
-    Semantic search via LangChain Chroma (nomic-embed-text).
-    Returns [] if Ollama is unreachable or no vectors exist.
+    Semantic search via ChromaDB + Gemini embeddings.
+    Returns [] if the embedding API is unreachable or no vectors exist.
+    google_api_key: user-provided key (overrides server key if set).
     """
-    chunk_hits = query_chunks(q, user_id, artifact_ids, k=limit)
-    question_hits = query_questions(q, user_id, artifact_ids, k=limit)
+    chunk_hits = query_chunks(q, user_id, artifact_ids, k=limit, google_api_key=google_api_key)
+    question_hits = query_questions(q, user_id, artifact_ids, k=limit, google_api_key=google_api_key)
 
     # Best cosine distance per chunk_id (lower = more similar)
     best: dict[str, float] = {}

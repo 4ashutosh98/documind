@@ -20,7 +20,11 @@ import hashlib
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
+
+_log = logging.getLogger(__name__)
 from sqlalchemy.orm import Session
 
 from chunking.base import ChunkRecord
@@ -49,15 +53,15 @@ def _embed_in_background(
     user_id: str,
     filename: str,
     source_chunk_ids: list[str] | None = None,
+    groq_api_key: str = "",
+    google_api_key: str = "",
 ) -> None:
     """
     Run in FastAPI BackgroundTasks (thread pool).
     Sets embedding_status = 'pending', runs embed_and_index, then sets 'ready'.
     Uses its own DB session since the request session has already closed.
+    groq_api_key: captured from request at upload time, used for doc2query generation.
     """
-    import logging
-    _log = logging.getLogger(__name__)
-
     db = SessionLocal()
     try:
         artifact = db.query(Artifact).filter(Artifact.id == artifact_id).first()
@@ -78,7 +82,7 @@ def _embed_in_background(
                 target_filename=filename,
             )
 
-        # Slow path: source not indexed yet (or no source) — call Ollama to embed fresh
+        # Slow path: source not indexed yet (or no source) — embed fresh
         if embedded == 0:
             figures_b64 = None
             if artifact and settings.enable_image_description:
@@ -95,6 +99,8 @@ def _embed_in_background(
                 user_id=user_id,
                 filename=filename,
                 figures_b64=figures_b64,
+                groq_api_key=groq_api_key,
+                google_api_key=google_api_key,
             )
 
         artifact = db.query(Artifact).filter(Artifact.id == artifact_id).first()
@@ -141,6 +147,8 @@ async def upload_file(
     user_id: str = Form(...),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
+    x_groq_api_key: str = Header(default="", alias="X-Groq-Api-Key"),
+    x_google_api_key: str = Header(default="", alias="X-Google-Api-Key"),
 ):
     suffix = Path(file.filename).suffix.lower()
     if suffix not in SUPPORTED_EXTENSIONS:
@@ -149,14 +157,20 @@ async def upload_file(
             detail=f"Unsupported file type {suffix!r}. Supported: {sorted(SUPPORTED_EXTENSIONS)}",
         )
 
+    groq_key = x_groq_api_key or settings.groq_api_key
+    google_key = x_google_api_key or settings.google_api_key
+
     # 1. Read + hash in memory
     content = await file.read()
     file_hash = hashlib.sha256(content).hexdigest()
     size_bytes = len(content)
+    _log.info("[upload] received %s (%.1f KB) from %s (user key: %s)",
+              file.filename, size_bytes / 1024, user_id, "yes" if x_groq_api_key else "no")
 
     # 2. Exact duplicate for this user
     existing = artifact_store.check_duplicate(db, user_id, file_hash)
     if existing:
+        _log.info("[upload] duplicate detected for %s (artifact %s)", file.filename, existing.id)
         artifact_store.touch_last_seen(db, existing)
         # If this artifact was never embedded (status "none") and embeddings are
         # now enabled, kick off the background task so the user sees progress icons.
@@ -182,6 +196,8 @@ async def upload_file(
                     chunk_ids=[c.id for c in existing_chunks],
                     user_id=user_id,
                     filename=existing.filename,
+                    groq_api_key=groq_key,
+                    google_api_key=google_key,
                 )
         return UploadResponse(
             artifact_id=existing.id,
@@ -197,6 +213,9 @@ async def upload_file(
     if prev:
         parent_id = prev.id
         version_number = prev.version_number + 1
+        _log.info("[upload] new version v%d for %s", version_number, file.filename)
+    else:
+        _log.info("[upload] new file: %s", file.filename)
 
     # 4. Write blob (skip if already stored by another user)
     upload_dir = Path(settings.upload_dir)
@@ -252,17 +271,21 @@ async def upload_file(
     else:
         chunk_records = chunk_result(parse_result)
 
-    # Contextual enrichment via Ollama (sync, before response — no-op if disabled or unreachable)
+    _log.info("[upload] chunked into %d chunks", len(chunk_records))
+
+    # Contextual enrichment via Groq (sync, before response — no-op if disabled or unreachable)
     doc_start = (parse_result.markdown_content or "")[:600]
     chunk_records = await enrich_chunks(
         chunks=chunk_records,
         filename=file.filename,
         file_type=parse_result.file_type,
         doc_start=doc_start,
+        groq_api_key=groq_key,
     )
 
     # 9. Persist chunks → FTS5 index updated, keyword search available immediately
     persisted = chunk_store.bulk_insert(db, artifact.id, chunk_records)
+    _log.info("[upload] persisted %d chunks to SQLite/FTS5 — keyword search available", len(persisted))
 
     # 10. Schedule vector embedding as background task (non-blocking)
     #     Set "pending" synchronously so the next listArtifacts call sees it immediately
@@ -271,6 +294,7 @@ async def upload_file(
     if settings.enable_embeddings:
         artifact.embedding_status = "pending"
         db.commit()
+        _log.info("[upload] scheduling background embedding for artifact %s", artifact.id)
         background_tasks.add_task(
             _embed_in_background,
             artifact_id=artifact.id,
@@ -279,6 +303,8 @@ async def upload_file(
             user_id=user_id,
             filename=file.filename,
             source_chunk_ids=source_chunk_ids,
+            groq_api_key=groq_key,
+            google_api_key=google_key,
         )
 
     status = "new_version" if parent_id else "created"

@@ -29,11 +29,15 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import logging
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from sqlalchemy.orm import Session
+
+_log = logging.getLogger(__name__)
 
 from config import settings
 from database import get_db
@@ -233,34 +237,37 @@ def _build_history(messages: list, limit: int = 4) -> str:
     return "Conversation so far:\n" + "\n".join(lines) + "\n\n"
 
 
-def _call_llm_chat(question: str, context: str, history: str = "") -> str:
+def _call_llm_chat(question: str, context: str, history: str = "", groq_api_key: str = "") -> str:
     """
     Run the RAG chain: document context + history + question → LLM answer.
 
-    Uses LangChain LCEL: PromptTemplate | ChatGoogleGenerativeAI | StrOutputParser.
+    Uses LangChain LCEL: PromptTemplate | ChatGroq | StrOutputParser.
     The prompt instructs the model to answer ONLY from the provided excerpts
     and to say so plainly if the answer is not there — reducing hallucination.
 
-    Model: gemini-2.0-flash (settings.gemini_model).
-    Timeout: 60 seconds (long enough for a thorough answer).
-
     Args:
-        question: The user's current question.
-        context:  Formatted document excerpts (from _build_context).
-        history:  Prior conversation turns (from _build_history), may be "".
+        question:     The user's current question.
+        context:      Formatted document excerpts (from _build_context).
+        history:      Prior conversation turns (from _build_history), may be "".
+        groq_api_key: User-provided key (overrides server key if set).
 
     Returns:
         The model's answer as a stripped string, or "" on any failure.
         Callers should fall back to _format_assistant_text when "" is returned.
     """
+    resolved_key = groq_api_key or settings.groq_api_key
+    _log.info("[chat] calling Groq %s (context=%d chars, history=%d chars)",
+              settings.groq_model, len(context), len(history))
     try:
-        chain = _RAG_PROMPT | ChatGoogleGenerativeAI(
-            model=settings.gemini_model,
-            google_api_key=settings.google_api_key,
-            timeout=60,
+        chain = _RAG_PROMPT | ChatGroq(
+            model=settings.groq_model,
+            groq_api_key=resolved_key,
         ) | StrOutputParser()
-        return chain.invoke({"context": context, "question": question, "history": history}).strip()
-    except Exception:
+        answer = chain.invoke({"context": context, "question": question, "history": history}).strip()
+        _log.info("[chat] Groq response: %d chars", len(answer))
+        return answer
+    except Exception as exc:
+        _log.error("[chat] Groq call failed: %s", exc)
         return ""
 
 
@@ -377,10 +384,17 @@ def send_message(
     conv_id: str,
     body: SendMessageRequest,
     db: Session = Depends(get_db),
+    x_groq_api_key: str = Header(default="", alias="X-Groq-Api-Key"),
+    x_google_api_key: str = Header(default="", alias="X-Google-Api-Key"),
 ):
     conv = _get_conversation_or_404(db, conv_id)
     if conv.user_id != body.user_id:
         raise HTTPException(status_code=403, detail="Not your conversation")
+
+    groq_key = x_groq_api_key or settings.groq_api_key
+    google_key = x_google_api_key or settings.google_api_key
+    _log.info("[chat] message from %s in conv %s (groq key: %s, google key: %s)",
+              body.user_id, conv_id, "user" if x_groq_api_key else "server", "user" if x_google_api_key else "server")
 
     now = _now()
 
@@ -415,8 +429,11 @@ def send_message(
         user_id=body.user_id,
         artifact_ids=body.artifact_ids,
         limit=5,
+        groq_api_key=groq_key,
+        google_api_key=google_key,
     )
     query_resp = format_results(body.content, raw)
+    _log.info("[chat] search returned %d results", len(query_resp.results))
 
     # Fallback: if no keyword hits, surface top chunks as a document overview
     is_fallback = False
@@ -425,13 +442,15 @@ def send_message(
         if fallback_raw:
             query_resp = format_results(body.content, fallback_raw)
             is_fallback = True
+            _log.info("[chat] no search hits — using fallback top chunks (%d)", len(query_resp.results))
 
-    # 4. Build assistant reply — try Gemini first, fall back to template
+    # 4. Build assistant reply — try Groq first, fall back to template
     assistant_text = ""
     if query_resp.results:
         context = _build_context(query_resp)
-        assistant_text = _call_llm_chat(body.content, context, history_text)
+        assistant_text = _call_llm_chat(body.content, context, history_text, groq_key)
     if not assistant_text:
+        _log.info("[chat] LLM unavailable or no results — using formatted fallback")
         assistant_text = _format_assistant_text(body.content, query_resp, is_fallback)
 
     # 5. Save assistant message

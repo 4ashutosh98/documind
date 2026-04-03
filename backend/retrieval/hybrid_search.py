@@ -10,6 +10,8 @@ pure FTS5 so the user always gets a response immediately after upload.
 """
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -17,6 +19,8 @@ from models.artifact import Artifact
 from retrieval.keyword_search import search as fts_search
 from retrieval.query_transformer import rewrite_query
 from retrieval.semantic_search import search as sem_search
+
+_log = logging.getLogger(__name__)
 
 _RRF_K = 60
 
@@ -83,17 +87,21 @@ def search(
     user_id: str,
     artifact_ids: list[str] | None = None,
     limit: int = 10,
+    groq_api_key: str = "",
+    google_api_key: str = "",
 ) -> list[dict]:
     """
     Hybrid retrieval:
-      1. Optionally rewrite query via LangChain LCEL
+      1. Optionally rewrite query via LangChain LCEL (Groq)
       2. FTS5 keyword search (always)
       3. Semantic search (only for artifacts with embedding_status='ready')
       4. RRF merge — falls back to FTS5 if no embeddings are ready
+    groq_api_key: user-provided key passed through to query rewriting.
     """
     # FTS5 uses the ORIGINAL query: keyword matching works best with exact user terms.
     # Rewriting "professor" → "faculty advisor" breaks BM25 exact-match — don't do it.
     fts_results = fts_search(db, q, user_id, artifact_ids, limit=limit)
+    _log.info("[search] FTS5 returned %d results for %r", len(fts_results), q)
 
     if not settings.enable_embeddings:
         for r in fts_results:
@@ -103,17 +111,25 @@ def search(
     # Only search ChromaDB for artifacts whose embedding is complete
     ready_ids = _ready_artifact_ids(db, user_id, artifact_ids)
     if not ready_ids:
+        _log.info("[search] no embeddings ready yet — returning FTS5-only results")
         for r in fts_results:
             r["search_type"] = "keyword"
         return fts_results  # Background embedding not done yet — fall back to FTS5
 
     # Semantic search uses the REWRITTEN query: embedding benefits from cleaned/expanded intent.
-    sem_q = rewrite_query(q)
-    sem_results = sem_search(db, sem_q, user_id, ready_ids, limit=limit)
+    sem_q = rewrite_query(q, groq_api_key)
+    sem_results = sem_search(db, sem_q, user_id, ready_ids, limit=limit, google_api_key=google_api_key)
+    _log.info("[search] semantic returned %d results for %r", len(sem_results), sem_q)
 
     if not sem_results:
         for r in fts_results:
             r["search_type"] = "keyword"
-        return fts_results  # No sufficiently similar chunks or Ollama unreachable
+        return fts_results  # No sufficiently similar chunks
 
-    return _rrf_merge([fts_results, sem_results], limit=limit)
+    merged = _rrf_merge([fts_results, sem_results], limit=limit)
+    _log.info("[search] RRF merged %d results (keyword=%d, semantic=%d, hybrid=%d)",
+              len(merged),
+              sum(1 for r in merged if r.get("search_type") == "keyword"),
+              sum(1 for r in merged if r.get("search_type") == "semantic"),
+              sum(1 for r in merged if r.get("search_type") == "hybrid"))
+    return merged

@@ -1,13 +1,15 @@
 """
 LangChain-backed vector store for semantic chunk storage.
 
-Two Chroma collections (via langchain-chroma + langchain-google-genai):
+Two Chroma collections:
   - "chunks"    — one vector per chunk text
   - "questions" — N vectors per chunk for Doc2Query hypothetical questions
     Both store chunk_id + artifact_id + user_id in metadata.
 
-Embedding is handled internally by GoogleGenerativeAIEmbeddings (text-embedding-004, 768-dim).
-Callers pass plain text; this module handles embed + upsert transparently.
+Embedding is handled by GoogleGenerativeAIEmbeddings (text-embedding-004, 768-dim).
+The Chroma collections are singletons (created once per process). Embedding functions
+are instantiated per-call so a user-provided API key can be used without recreating
+the collection client.
 """
 from __future__ import annotations
 
@@ -17,17 +19,17 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from config import settings
 
 # ---------------------------------------------------------------------------
-# Singletons
+# Singletons — Chroma collection clients (embedding-function-free for upsert/query)
 # ---------------------------------------------------------------------------
 
 _chunks_store: Chroma | None = None
 _questions_store: Chroma | None = None
 
 
-def _embeddings() -> GoogleGenerativeAIEmbeddings:
+def _embeddings(google_api_key: str = "") -> GoogleGenerativeAIEmbeddings:
     return GoogleGenerativeAIEmbeddings(
         model=settings.gemini_embed_model,
-        google_api_key=settings.google_api_key,
+        google_api_key=google_api_key or settings.google_api_key,
     )
 
 
@@ -65,17 +67,23 @@ def upsert_chunk(
     artifact_id: str,
     user_id: str,
     filename: str,
+    google_api_key: str = "",
 ) -> None:
-    """Embed `text` via Gemini and upsert into the chunks collection."""
-    _get_chunks_store().add_texts(
-        texts=[text],
+    """Embed `text` and upsert into the chunks collection.
+    google_api_key: user-provided key (overrides server key if set).
+    """
+    emb = _embeddings(google_api_key)
+    vector = emb.embed_documents([text])[0]
+    _get_chunks_store()._collection.upsert(
+        ids=[chunk_id],
+        embeddings=[vector],
+        documents=[text],
         metadatas=[{
             "chunk_id": chunk_id,
             "artifact_id": artifact_id,
             "user_id": user_id,
             "filename": filename,
         }],
-        ids=[chunk_id],
     )
 
 
@@ -85,16 +93,26 @@ def upsert_questions(
     artifact_id: str,
     user_id: str,
     filename: str,
+    google_api_key: str = "",
 ) -> None:
-    """Embed Doc2Query questions and upsert into the questions collection."""
+    """Embed Doc2Query questions and upsert into the questions collection.
+    google_api_key: user-provided key (overrides server key if set).
+    """
     if not questions:
         return
+    emb = _embeddings(google_api_key)
+    vectors = emb.embed_documents(questions)
     ids = [f"{chunk_id}__q{i}" for i in range(len(questions))]
     metadatas = [
         {"chunk_id": chunk_id, "artifact_id": artifact_id, "user_id": user_id, "filename": filename}
         for _ in questions
     ]
-    _get_questions_store().add_texts(texts=questions, metadatas=metadatas, ids=ids)
+    _get_questions_store()._collection.upsert(
+        ids=ids,
+        embeddings=vectors,
+        documents=questions,
+        metadatas=metadatas,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -106,26 +124,36 @@ def query_chunks(
     user_id: str,
     artifact_ids: list[str] | None,
     k: int = 10,
+    google_api_key: str = "",
 ) -> list[tuple[str, float]]:
     """
     Embed query string and search the chunks collection.
     Returns [(chunk_id, cosine_distance)] sorted by distance (lower = more similar).
+    google_api_key: user-provided key (overrides server key if set).
     """
     store = _get_chunks_store()
     count = store._collection.count()
     if count == 0:
         return []
 
-    # ChromaDB 0.5+ requires $and for compound filters mixing equality + operator
     if artifact_ids:
         where: dict = {"$and": [{"user_id": user_id}, {"artifact_id": {"$in": artifact_ids}}]}
     else:
         where = {"user_id": user_id}
 
     try:
-        # similarity_search_with_score returns (Document, distance) — distance for cosine space
-        results = store.similarity_search_with_score(q, k=min(k, count), filter=where)
-        return [(doc.metadata["chunk_id"], dist) for doc, dist in results]
+        emb = _embeddings(google_api_key)
+        q_vector = emb.embed_query(q)
+        result = store._collection.query(
+            query_embeddings=[q_vector],
+            n_results=min(k, count),
+            where=where,
+            include=["metadatas", "distances"],
+        )
+        ids = result["ids"][0]
+        distances = result["distances"][0]
+        metadatas = result["metadatas"][0]
+        return [(m["chunk_id"], d) for m, d in zip(metadatas, distances)]
     except Exception:
         return []
 
@@ -135,25 +163,36 @@ def query_questions(
     user_id: str,
     artifact_ids: list[str] | None,
     k: int = 10,
+    google_api_key: str = "",
 ) -> list[tuple[str, float]]:
     """
     Embed query string and search the Doc2Query questions collection.
     Returns [(chunk_id, cosine_distance)] — the parent chunk_id, not the question vector id.
+    google_api_key: user-provided key (overrides server key if set).
     """
     store = _get_questions_store()
     count = store._collection.count()
     if count == 0:
         return []
 
-    # ChromaDB 0.5+ requires $and for compound filters mixing equality + operator
     if artifact_ids:
         where: dict = {"$and": [{"user_id": user_id}, {"artifact_id": {"$in": artifact_ids}}]}
     else:
         where = {"user_id": user_id}
 
     try:
-        results = store.similarity_search_with_score(q, k=min(k, count), filter=where)
-        return [(doc.metadata["chunk_id"], dist) for doc, dist in results]
+        emb = _embeddings(google_api_key)
+        q_vector = emb.embed_query(q)
+        result = store._collection.query(
+            query_embeddings=[q_vector],
+            n_results=min(k, count),
+            where=where,
+            include=["metadatas", "distances"],
+        )
+        ids = result["ids"][0]
+        distances = result["distances"][0]
+        metadatas = result["metadatas"][0]
+        return [(m["chunk_id"], d) for m, d in zip(metadatas, distances)]
     except Exception:
         return []
 

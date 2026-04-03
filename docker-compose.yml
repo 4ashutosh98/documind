@@ -8,14 +8,14 @@ services:
                              # Google Drive uses macFUSE which lacks the fcntl byte-range locking
                              # that SQLite WAL mode requires — bind-mounting ./data causes
                              # "disk I/O error" on every db.commit().
+    env_file:
+      - backend/.env          # injects GOOGLE_API_KEY (and any other vars) from your local .env
     environment:
       - DATABASE_URL=sqlite:////data/db.sqlite3
       - UPLOAD_DIR=/data/uploads
       - CHROMA_DIR=/data/chroma
       - ENABLE_EMBEDDINGS=true
       - ENABLE_QUERY_REWRITING=true
-      # Set GOOGLE_API_KEY in a .env file or pass it directly:
-      # - GOOGLE_API_KEY=your_key_here
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
