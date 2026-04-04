@@ -28,6 +28,11 @@ import AssistantMessage from "@/components/AssistantMessage";
 import FileUploadModal from "@/components/FileUploadModal";
 import ArtifactDetailModal from "@/components/ArtifactDetailModal";
 
+function describeError(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return fallback;
+}
+
 // ---------------------------------------------------------------------------
 // Inner component — uses useSearchParams (must be wrapped in Suspense)
 // ---------------------------------------------------------------------------
@@ -35,6 +40,7 @@ function ChatInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [userId, setUserId] = useState<string | null>(null);
+  const [uiError, setUiError] = useState<string | null>(null);
 
   // Sidebar state
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -74,8 +80,9 @@ function ChatInner() {
     try {
       const convs = await listConversations(uid);
       setConversations(convs);
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error("Failed to load conversations", error);
+      setUiError(describeError(error, "Could not load conversations from the backend."));
     }
   }, []);
 
@@ -83,8 +90,9 @@ function ChatInner() {
     try {
       const arts = await listArtifacts(uid);
       setArtifacts(arts);
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error("Failed to load artifacts", error);
+      setUiError(describeError(error, "Could not load uploaded files from the backend."));
     }
   }, []);
 
@@ -157,12 +165,14 @@ function ChatInner() {
   // ---------------------------------------------------------------------------
   async function handleNewChat() {
     if (!userId) return;
+    setUiError(null);
     try {
       const conv = await createConversation(userId);
       await refreshConversations(userId);
       selectConversation(conv.id);
-    } catch {
-      // ignore
+    } catch (error) {
+      console.error("Failed to create conversation", error);
+      setUiError(describeError(error, "Could not start a new conversation."));
     }
   }
 
@@ -199,6 +209,7 @@ function ChatInner() {
   async function handleFilesSelected(files: File[]) {
     if (!userId) return;
     const uid = userId;
+    setUiError(null);
 
     // Add phantom entries to sidebar immediately
     const phantoms = files.map((f) => ({
@@ -219,8 +230,14 @@ function ChatInner() {
             prev.map((e) => e.tempId === tempId ? { ...e, progress: pct } : e)
           );
         });
-      } catch {
-        // ignore upload errors — phantom entry removed below either way
+      } catch (error) {
+        console.error(`Upload failed for ${files[i].name}`, error);
+        setUiError(
+          `Upload failed for ${files[i].name}: ${describeError(
+            error,
+            "The request failed before the server returned a response."
+          )}`
+        );
       }
       // Remove phantom entry and refresh so the real artifact appears
       setUploadingFiles((prev) => prev.filter((e) => e.tempId !== tempId));
@@ -274,6 +291,32 @@ function ChatInner() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
+      {uiError && (
+        <div className="fixed top-4 left-1/2 z-50 w-[min(720px,calc(100vw-2rem))] -translate-x-1/2 px-4">
+          <div
+            className="flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-card"
+            style={{ background: "#2A1117", borderColor: "#7F1D1D", color: "#FECACA" }}
+          >
+            <div className="mt-0.5 shrink-0">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.4" />
+                <path d="M8 4.5v4M8 11.2v.3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+            </div>
+            <p className="flex-1 text-sm leading-relaxed">{uiError}</p>
+            <button
+              type="button"
+              onClick={() => setUiError(null)}
+              className="shrink-0 rounded-lg p-1 transition-opacity hover:opacity-75"
+              aria-label="Dismiss error"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ================================================================== */}
       {/* LEFT SIDEBAR — Conversations                                        */}

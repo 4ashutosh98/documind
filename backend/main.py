@@ -38,15 +38,35 @@ from api.dev import router as dev_router, perform_reset
 
 _log = logging.getLogger(__name__)
 
+_DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "https://ashutoshchoudhari-documind.hf.space",
+    "https://huggingface.co",
+]
+
+
+def _parse_allowed_origins() -> list[str]:
+    """Return the configured browser origins allowed to call the API."""
+    raw = os.environ.get("ALLOWED_ORIGINS", "")
+    parsed = [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return parsed or list(_DEFAULT_ALLOWED_ORIGINS)
+
+
+_allowed_origins = _parse_allowed_origins()
+
+
+def _is_static_request(path: str) -> bool:
+    return path.startswith("/_next") or path.endswith(
+        (".js", ".css", ".ico", ".png", ".svg", ".woff", ".woff2", ".map")
+    )
+
 # ---------------------------------------------------------------------------
 # App instance
 # ---------------------------------------------------------------------------
 app = FastAPI(title="DocuMind API", version="1.0.0")
 
 # CORS: configurable via ALLOWED_ORIGINS env var (comma-separated).
-# In the HF Spaces deployment the frontend is served from the same origin, so
-# CORS is not needed for frontend↔API calls. The default allows local dev.
-_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+# Defaults cover local dev plus both HF browser origins used by this Space.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -83,15 +103,27 @@ async def track_activity(request: Request, call_next):
     """Update _last_activity on every meaningful user-initiated request."""
     global _last_activity
     path = request.url.path
+    origin = request.headers.get("origin", "-")
+    should_log = not _is_static_request(path)
+    if should_log:
+        _log.info("[http] -> %s %s origin=%s", request.method, path, origin)
     is_inactive = (
         path in _INACTIVE_PATHS
         or any(path.startswith(p) for p in _INACTIVE_PREFIXES)
         # Static file extensions served by the catch-all frontend route
-        or path.endswith((".js", ".css", ".ico", ".png", ".svg", ".woff", ".woff2", ".map"))
+        or _is_static_request(path)
     )
     if not is_inactive:
         _last_activity = time.time()
-    return await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        if should_log:
+            _log.exception("[http] !! %s %s origin=%s", request.method, path, origin)
+        raise
+    if should_log:
+        _log.info("[http] <- %s %s status=%s", request.method, path, response.status_code)
+    return response
 
 
 async def _inactivity_cleanup_loop() -> None:
@@ -160,6 +192,7 @@ async def on_startup() -> None:
         settings.enable_doc2query,
         settings.verbose,
     )
+    _log.info("Allowed browser origins: %s", ", ".join(_allowed_origins))
     init_db()
     asyncio.create_task(_inactivity_cleanup_loop())
 

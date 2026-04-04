@@ -147,6 +147,13 @@ The Dockerfile does two things in a multi-stage build:
 1. Builds the Next.js static export (`npm run build` → `out/`)
 2. Copies it into the FastAPI container — FastAPI serves both the UI and the API from port 7860
 
+### Browser origins and CORS
+
+- Local development uses `http://localhost:3000` for the frontend and `http://localhost:8000` for the backend.
+- HF Spaces may be opened either through the direct `*.hf.space` URL or the `huggingface.co/spaces/...` wrapper page.
+- `ALLOWED_ORIGINS` accepts a comma-separated list of browser origins and defaults to the local origin plus both HF origins used by this demo.
+- The frontend avoids attaching JSON `Content-Type` headers to `GET`/`DELETE` requests so routine list loads do not trigger unnecessary CORS preflights.
+
 ### API Keys
 
 Two secrets are required in HF Spaces Settings → Repository Secrets:

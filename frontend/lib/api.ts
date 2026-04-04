@@ -21,19 +21,27 @@ function getGoogleKey(): string {
   return localStorage.getItem("documind_google_key") ?? "";
 }
 
+function buildHeaders(init?: RequestInit): Headers {
+  const headers = new Headers(init?.headers);
+  const groqKey = getGroqKey();
+  const googleKey = getGoogleKey();
+
+  if (groqKey) headers.set("X-Groq-Api-Key", groqKey);
+  if (googleKey) headers.set("X-Google-Api-Key", googleKey);
+
+  if (init?.body !== undefined && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  return headers;
+}
+
 async function request<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
-  const groqKey = getGroqKey();
-  const googleKey = getGoogleKey();
   const res = await fetch(`${BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(groqKey ? { "X-Groq-Api-Key": groqKey } : {}),
-      ...(googleKey ? { "X-Google-Api-Key": googleKey } : {}),
-      ...init?.headers,
-    },
+    headers: buildHeaders(init),
     ...init,
   });
   if (!res.ok) {
@@ -86,7 +94,10 @@ export async function uploadFile(
         reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
       }
     };
-    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.onerror = () => {
+      console.error("Upload request failed before the server returned a response.");
+      reject(new Error("Network error during upload"));
+    };
     xhr.send(form);
   });
 }
