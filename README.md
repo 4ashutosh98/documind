@@ -11,7 +11,9 @@ pinned: false
 
 A full-stack RAG (Retrieval-Augmented Generation) application for document ingestion and intelligent Q&A. Upload PDFs, DOCX, and XLSX files and ask questions about them — answers are grounded in your documents with source citations.
 
-**Live demo:** [DocuMind on Hugging Face Spaces](#) *(update link after deploying)*
+**Live demo:** [DocuMind live app](https://ashutoshchoudhari-documind.hf.space)
+
+**Project / Space page:** [Hugging Face Space page](https://huggingface.co/spaces/ashutoshchoudhari/documind)
 
 ---
 
@@ -127,6 +129,7 @@ cd frontend
 npm install
 
 # Create .env.local for local dev
+# Local development uses the standalone FastAPI server on :8000.
 echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
 
 npm run dev    # http://localhost:3000
@@ -150,7 +153,9 @@ The Dockerfile does two things in a multi-stage build:
 ### Browser origins and CORS
 
 - Local development uses `http://localhost:3000` for the frontend and `http://localhost:8000` for the backend.
-- HF Spaces may be opened either through the direct `*.hf.space` URL or the `huggingface.co/spaces/...` wrapper page.
+- Production runs as a single Hugging Face Space on the direct app URL `https://ashutoshchoudhari-documind.hf.space`.
+- In HF Spaces, the frontend should use relative API paths and `NEXT_PUBLIC_API_URL` should be omitted or left empty.
+- The `huggingface.co/spaces/...` page should be treated as the project or inspection page, not the primary live-demo runtime.
 - `ALLOWED_ORIGINS` accepts a comma-separated list of browser origins and defaults to the local origin plus both HF origins used by this demo.
 - The frontend avoids attaching JSON `Content-Type` headers to `GET`/`DELETE` requests so routine list loads do not trigger unnecessary CORS preflights.
 

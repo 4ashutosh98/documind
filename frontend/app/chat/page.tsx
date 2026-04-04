@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getUser, clearUser } from "@/lib/auth";
+import { getApiBaseDiagnostic, warnIfApiBaseLooksMisconfigured } from "@/lib/api-base";
 import {
   createConversation,
   deleteConversation,
@@ -79,6 +80,8 @@ function ChatInner() {
     if (typeof window !== "undefined") {
       setShowHfSpaceButton(window.location.hostname.endsWith(".hf.space"));
     }
+    const diagnostic = warnIfApiBaseLooksMisconfigured() ?? getApiBaseDiagnostic();
+    if (diagnostic) setUiError((prev) => prev ?? diagnostic);
   }, [router]);
 
   // ---------------------------------------------------------------------------
@@ -537,7 +540,7 @@ function ChatInner() {
                 href={HF_SPACE_PAGE_URL}
                 target="_blank"
                 rel="noreferrer"
-                title="Open the full Hugging Face Space page"
+                title="Open the Hugging Face Space page for build and source details"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 hover:opacity-80"
                 style={{
                   background: "transparent",
@@ -554,7 +557,7 @@ function ChatInner() {
                     strokeLinejoin="round"
                   />
                 </svg>
-                Space Page
+                Space Source
               </a>
             )}
 

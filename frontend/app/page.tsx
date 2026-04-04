@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getUser } from "@/lib/auth";
+import { getApiBase, warnIfApiBaseLooksMisconfigured } from "@/lib/api-base";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE = getApiBase();
 
 export default function LandingPage() {
   const router = useRouter();
@@ -18,6 +19,7 @@ export default function LandingPage() {
     if (!confirm("This will permanently delete all artifacts, conversations, and embeddings. Are you sure?")) return;
     setResetting(true);
     try {
+      warnIfApiBaseLooksMisconfigured();
       await fetch(`${BASE}/dev/reset`, { method: "POST" });
     } finally {
       setResetting(false);

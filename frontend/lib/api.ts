@@ -8,8 +8,9 @@ import type {
   SendMessageResponse,
   UploadResponse,
 } from "@/types";
+import { getApiBase, warnIfApiBaseLooksMisconfigured } from "@/lib/api-base";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE = getApiBase();
 
 function getGroqKey(): string {
   if (typeof window === "undefined") return "";
@@ -40,6 +41,7 @@ async function request<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
+  warnIfApiBaseLooksMisconfigured();
   const res = await fetch(`${BASE}${path}`, {
     headers: buildHeaders(init),
     ...init,
@@ -75,6 +77,7 @@ export async function uploadFile(
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    warnIfApiBaseLooksMisconfigured();
     xhr.open("POST", `${BASE}/upload`);
     const groqKey = getGroqKey();
     if (groqKey) xhr.setRequestHeader("X-Groq-Api-Key", groqKey);
