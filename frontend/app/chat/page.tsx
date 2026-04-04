@@ -29,10 +29,6 @@ import AssistantMessage from "@/components/AssistantMessage";
 import FileUploadModal from "@/components/FileUploadModal";
 import ArtifactDetailModal from "@/components/ArtifactDetailModal";
 
-const HF_SPACE_PAGE_URL =
-  process.env.NEXT_PUBLIC_HF_SPACE_PAGE_URL ??
-  "https://huggingface.co/spaces/ashutoshchoudhari/documind";
-
 function describeError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
@@ -52,7 +48,6 @@ function ChatInner() {
   const [artifacts, setArtifacts] = useState<ArtifactSummary[]>([]);
   const [showUpload, setShowUpload] = useState(false);
   const [detailArtifactId, setDetailArtifactId] = useState<string | null>(null);
-  const [showHfSpaceButton, setShowHfSpaceButton] = useState(false);
 
   // In-flight uploads: tempId → { filename, file_type, size_bytes, progress }
   const [uploadingFiles, setUploadingFiles] = useState<
@@ -76,9 +71,6 @@ function ChatInner() {
       router.replace("/login");
     } else {
       setUserId(u);
-    }
-    if (typeof window !== "undefined") {
-      setShowHfSpaceButton(window.location.hostname.endsWith(".hf.space"));
     }
     const diagnostic = warnIfApiBaseLooksMisconfigured() ?? getApiBaseDiagnostic();
     if (diagnostic) setUiError((prev) => prev ?? diagnostic);
@@ -535,32 +527,6 @@ function ChatInner() {
           </div>
 
           <div className="flex items-center gap-2">
-            {showHfSpaceButton && (
-              <a
-                href={HF_SPACE_PAGE_URL}
-                target="_blank"
-                rel="noreferrer"
-                title="Open the Hugging Face Space page for build and source details"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 hover:opacity-80"
-                style={{
-                  background: "transparent",
-                  color: "var(--text-secondary)",
-                  border: "1px solid var(--border)",
-                }}
-              >
-                <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                  <path
-                    d="M4 2h5v5M9 2L5.25 5.75M7 9H2V4"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                Space Source
-              </a>
-            )}
-
             {/* Upload button */}
             <button
               onClick={() => setShowUpload(true)}
